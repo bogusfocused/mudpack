@@ -27,6 +27,8 @@ build-dir: clean
 
 mudpack: src/mudpack.in build-dir
 	sed -e 's|@MUDPACK_LIB_DIR@|$(MUDPACK_LIB_DIR)|' \
+		-e 's|@MUDPACK_DEBUG@|false|' \
+		-e 's|@MUDPACK_CONF@|/etc/mudpack.conf|' \
 		-e 's|@MUDPACK_SHR_DIR@|$(MUDPACK_SHR_DIR)|' \
 	    -e 's|@MUDPACK_VERSION@|$(MUDPACK_VERSION)|' \
 		src/mudpack.in >$(INTDIR)/$@.in
@@ -34,6 +36,8 @@ mudpack: src/mudpack.in build-dir
 
 mudpack.debug: src/mudpack.in build-dir
 	sed -e 's|@MUDPACK_LIB_DIR@|$(BUILDDIR)/lib|' \
+		-e 's|@MUDPACK_DEBUG@|true|' \
+		-e 's|@MUDPACK_CONF@|mudpack.conf|' \
 		-e 's|@MUDPACK_SHR_DIR@|$(BUILDDIR)/share|' \
 	    -e 's|@MUDPACK_VERSION@|$(MUDPACK_VERSION)|' \
 		src/mudpack.in >$(INTDIR)/$@.in

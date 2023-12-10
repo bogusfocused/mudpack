@@ -4,7 +4,7 @@ readonly mudpack_version='@MUDPACK_VERSION@'
 readonly lib_dir='@MUDPACK_LIB_DIR@'
 readonly conf=${MUDPACK_CONF:-'@MUDPACK_CONF@'}
 
-export MUDPACK_DEBUG=true
+export MUDPACK_DEBUG=${MUDPACK_DEBUG:-'@MUDPACK_DEBUG@'}
 
 printf >&2 'mudpack version %s\n' "$mudpack_version"
 
