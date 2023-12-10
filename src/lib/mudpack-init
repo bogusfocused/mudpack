@@ -1,0 +1,102 @@
+#!/bin/bash
+
+PKGS=(
+    sudo
+    base-devel
+    git
+    pacman-contrib
+)
+source debug.inc
+
+function vm_exists() {
+    local vmroot="$1"
+    if [ -d "$vmroot" ]; then
+        if [ $ARG_recreate ]; then
+            printf "Deleting existing directory; -recreate was passed.\n"
+            rm -rf $vmroot
+        else
+            DEBUG_PRINT "Machine at $vmroot exists"
+            return 0
+        fi
+    else
+        printf "Directory $vmroot does not exist\n"
+    fi
+    return 1
+}
+function run_template() {
+    local vmroot=$1
+    local name=${vmroot##*/}
+    local template
+    for d in $MUDPACK_libdir; do
+        template="$d/${name}"
+        if [[ -f "${template}" ]]; then
+            DEBUG_PRINT "using template ${template}"
+            "${template}" ${vmroot}
+            return $?
+        fi
+        template="$d/templates/${name}"
+        if [[ -f "$template" ]]; then
+            DEBUG_PRINT "using template ${template}"
+            "${template}" ${vmroot}
+            return $?
+        fi
+    done
+    die "could not find template ${name}"
+}
+
+function ensure_exists() {
+    local vmroot="$1"
+    [[ -n ${vmroot} ]] || die "root dir is required to be passed as argument."
+    [[ "${vmroot:0:1}" == "/" ]] || die "specify absolute path to machine"
+    vm_exists ${vmroot} && return
+    btrfs sub create ${vmroot}
+    cd "$MUDPACK_homedir"
+    run_template ${vmroot}
+    mudpack-run ${vmroot} <<-EOF
+pacman -Sy --needed --noconfirm ${PKGS[*]}
+EOF
+    # enable sudo for runas user
+    echo "mudpack ALL = (ALL:ALL) NOPASSWD: ALL" \
+        >"${vmroot}/etc/sudoers.d/mudpack"
+    mkdir -p "${vmroot}/etc/sysusers.d"
+    cat >"${vmroot}/etc/sysusers.d/mudpack.conf" <<-EOF
+        g mudpack $(id -g ${MUDPACK_builduser}) -
+        u mudpack $(id -u ${MUDPACK_builduser}) "mudpack build user" /var/cache/mudpack
+EOF
+    systemd-sysusers --root="${vmroot}"
+    install_aurutils ${vmroot}
+
+}
+function install_aurutils() {
+    local vmroot="$1"
+    local pattern="${MUDPACK_homedir}"'/aurutils-*-any.pkg.tar.zst'
+    if ! compgen -G "${pattern}" >/dev/null; then
+        DEBUG_PRINT "Building aurutils"
+        sudo -u ${MUDPACK_builduser} /bin/bash <<-"EOF"
+    dir=$(mktemp -d)
+    git clone https://aur.archlinux.org/aurutils.git $dir
+    cd $dir
+    makepkg --noconfirm -s
+    cp -v aurutils-*-any.pkg.tar.zst ~
+    rm -rf $dir
+EOF
+    fi
+    mudpack-runas ${vmroot} <<-"EOF"
+        file=( $(/bin/ls -1 aurutils-*-any.pkg.tar.zst) )
+        sudo pacman --needed --noconfirm  -U "${file[0]}"
+EOF
+}
+
+function mudpack_create() {
+    local vmroot=$1
+    ensure_exists $1
+}
+
+function mudpack_init() {
+    for m in ${MUDPACK_machines}; do
+        ensure_exists $m
+    done
+}
+
+cmd="${0##*/mudpack\-}"
+"mudpack_$cmd" "$@"

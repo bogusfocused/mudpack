@@ -1,0 +1,35 @@
+#!/bin/bash
+
+function create_aarch64() {
+  local vmroot=$1
+  echo "Creating VM $vmroot using aarch64 template"
+  local url="http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz"
+  wget -N $url
+
+  local cls=$(tput el)
+  printf "Extracting  ${url##*/}...\n"
+  bsdtar -v -xpf "${url##*/}" -C $vmroot 2> >(xargs -d'\n' -L1 printf "%s%s\r" "$cls")
+  printf "$cls"
+
+  for src in /etc/locale.{gen,conf}; do
+    cp -pfv "${src}" "${vmroot}${src}"
+  done
+
+  mudpack-run $vmroot <<-EOF
+
+  	locale-gen 
+		pacman-key --init 
+		pacman-key --populate archlinuxarm
+
+# disable hooks as they are not useful in chroot
+    mkdir -vp /etc/pacman.d/hooks
+    ln -vsf /dev/null /etc/pacman.d/hooks/90-linux-aarch64.hook
+    ln -vsf /dev/null /etc/pacman.d/hooks/60-linux-aarch64.hook
+    ln -vsf /dev/null /etc/pacman.d/hooks/90-mkinitcpio-install.hook
+    ln -vsf /dev/null /etc/pacman.d/hooks/60-mkinitcpio-remove.hook
+
+#		pacman -Syu --noconfirm --needed sudo git base-devel
+EOF
+}
+
+create_aarch64 "$@"

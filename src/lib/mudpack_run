@@ -1,0 +1,62 @@
+#!/bin/bash
+
+source debug.inc
+
+DEFAULT_NSPAWN_ARGS=(
+    --bind=$MUDPACK_repodir
+    --bind=$MUDPACK_homedir:/var/cache/mudpack
+    --setenv=LANG=en_US.UTF-8
+    --resolv-conf=replace-host
+    --pipe
+)
+
+function add_repo_to_pacman() {
+    local vmroot="$1"
+    local pacman_conf="$2"
+    cat $vmroot/etc/pacman.conf - <<-EOF >>$pacman_conf
+		[custom]
+		SigLevel = Optional TrustAll
+		Server = file://$MUDPACK_repodir
+EOF
+}
+
+function _run_vm() {
+    local vmroot="$1"
+    local pacman_conf=$(mktemp)
+    chmod 644 $pacman_conf
+    add_repo_to_pacman $vmroot $pacman_conf
+    local NSPAWN_ARGS=(
+        "${DEFAULT_NSPAWN_ARGS[@]}"
+        "--directory=$vmroot"
+        "--bind=$pacman_conf:/etc/pacman.conf"
+        "${@:2}"
+    )
+    DEBUG_PRINT "systemd-nspawn ${NSPAWN_ARGS[*]}"
+    systemd-nspawn ${NSPAWN_ARGS[*]}
+    rm "$pacman_conf"
+    return $?
+}
+
+function _runas() {
+    local vmroot="$1"
+    _run_vm "$vmroot" "--user=mudpack"
+}
+
+function _run() {
+    local vmroot="$1"
+    _run_vm $vmroot
+}
+
+function mudpack_runas() {
+    _runas $1
+}
+function mudpack_run() {
+    _run $1
+}
+
+vmroot=$1
+[[ -n $vmroot ]] || die "root dir is required to be passed as argument."
+[[ "${vmroot:0:1}" == "/" ]] || die "specify absolute path to machine"
+
+cmd="${0##*/mudpack\-}"
+"mudpack_$cmd" "$vmroot"

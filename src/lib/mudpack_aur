@@ -1,0 +1,55 @@
+#!/bin/bash
+
+source debug.inc
+
+IFS='' read -r -d '' remove <<-"EOF"
+	aur repo --list-path | while read -r repo_path; do
+		repo-remove "$repo_path" "$@"
+		paccache -c "${repo_path%/*}" -rvk0 "$@"
+	done
+EOF
+IFS='' read -r -d '' add <<-"EOF"
+	aur sync --noconfirm --no-view "$@"
+EOF
+IFS='' read -r -d '' list <<-"EOF"
+	aur repo -l
+EOF
+IFS='' read -r -d '' update <<-"EOF"
+	aur sync --noconfirm --no-view --upgrades
+EOF
+
+function mudpack_list() {
+	for m in $MUDPACK_machines; do
+		mudpack-runas "$m" <<-EOF
+			set -- $*
+			${list}
+		EOF
+	done
+}
+function mudpack_add() {
+	for m in $MUDPACK_machines; do
+		mudpack-runas "$m" <<-EOF
+			set -- $*
+			${add}
+		EOF
+	done
+}
+function mudpack_update() {
+	for m in $MUDPACK_machines; do
+		mudpack-runas "$m" <<-EOF
+			set -- $*
+			${update}
+		EOF
+	done
+}
+function mudpack_remove() {
+	for m in $MUDPACK_machines; do
+		mudpack-runas "$m" <<-EOF
+			set -- $*
+			${remove}
+		EOF
+	done
+}
+
+cmd="${0##*/mudpack\-}"
+"mudpack_$cmd" "$@"

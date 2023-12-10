@@ -1,0 +1,2 @@
+MUDPACK_CONF="./mudpack.conf" \
+sudo -E ./build/obj/mudpack.debug

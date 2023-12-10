@@ -1,0 +1,21 @@
+#!/bin/bash
+
+function create_x86_64() {
+	local vmroot=$1
+	local name=${vmroot##*/}
+	echo "Creating VM ${name} in ${vmroot} using x86_64 template"
+	pacstrap -K ${vmroot} base base-devel sudo git
+
+	for src in /etc/locale.{gen,conf}; do
+		cp -pfv "${src}" "${vmroot}${src}"
+	done
+
+	mudpack-run ${vmroot} <<-EOF
+		# generate locale
+		locale-gen
+		# initialize pacman
+		pacman-key --populate archlinux
+	EOF
+}
+
+create_x86_64 "$@"

@@ -1,0 +1,80 @@
+#!/bin/bash
+
+source ./vm.inc
+
+function build_aurutils() {
+	which aur && return 0
+	local vmroot=$1
+	# build aurutls as MUDPACK_builduser
+	vm_runas $MUDPACK_builduser $vmroot <<-EOF
+		git clone https://aur.archlinux.org/aurutils.git /tmp/aurutils
+		cd /tmp/aurutils
+		makepkg --noconfirm -s
+		rm -rf /tmp/aurutils
+	EOF
+}
+
+function main() {
+	local name
+	local vmroot
+	for name in "${ARG_REST[@]}"; do
+		echo =======ARCH: $name=======
+		vmroot="${MUDPACK_machinesdir}/${name}"
+
+		vm_exists $vmroot || (btrfs sub create $vmroot && "create_$name" $vmroot)
+		build_aurutils $vmroot
+		if [ -n "$ARG_runas" ]; then
+			vm_runas "$ARG_runas" "$vmroot" <<-EOF
+				 "$ARG_PASS"
+			EOF
+		else
+			vm_runas "$ARG_runas" "$vmroot" <<-EOF
+				 "$ARG_PASS"
+			EOF
+		fi
+	done
+}
+
+shopt -s extglob
+
+function parse_args() {
+	local _prop
+	while test $# != 0; do
+		case "$1" in
+		-+([a-z])=*)
+			_prop=${1:1}
+			eval "ARG_${_prop%%=*}=${_prop#*=}"
+			;;
+		-+([a-z]))
+			eval "ARG_${1:1}=true"
+			;;
+		--)
+			shift
+			ARG_PASS="$*"
+			return 0
+			;;
+		*)
+			ARG_REST+=($1)
+			;;
+		esac
+		shift
+	done
+}
+
+# Make sure only root can run our script
+if [ "$(id -u)" != "0" ]; then
+	echo "This script must be run as root" 1>&2
+	exit 1
+fi
+
+declare -a ARG_REST=()
+parse_args "$@"
+# post processing of args
+[ "$ARG_runas" == true ] && ARG_runas="$MUDPACK_builduser" #  default value
+[ "${ARG_REST[0]}" == "all" ] && ARG_REST=($(ls -1 $MUDPACK_machinesdir | xargs))
+[ -n "$ARG_PASS" ] || $(>$ARG_PASS)
+for a in ${!ARG_@}; do
+	echo ${a[@]}=${!a@K}
+done
+
+main

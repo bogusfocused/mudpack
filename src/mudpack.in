@@ -1,0 +1,170 @@
+#!/bin/bash
+readonly argv0=mudpack
+readonly mudpack_version='@MUDPACK_VERSION@'
+readonly lib_dir='@MUDPACK_LIB_DIR@'
+readonly conf=${MUDPACK_CONF:-'@MUDPACK_CONF@'}
+
+export MUDPACK_DEBUG=true
+
+printf >&2 'mudpack version %s\n' "$mudpack_version"
+
+SRC_NAME=${BASH_SOURCE[1]}
+function die {
+	local message="$1"
+	if [ -z "$message" ]; then
+		printf >&2 '%s: line %s: %s: exited unexpectedly.' ${BASH_SOURCE[1]} ${BASH_LINENO[0]} ${FUNCNAME[1]}
+	else
+		printf >&2 '%s\n' "$message"
+	fi
+	exit 1
+}
+
+function DEBUG_PRINT() {
+	[ $MUDPACK_DEBUG ] || return 1
+	if [ $# == 0 ]; then
+		# read input
+		while IFS= read -r line || [ -n "$line" ]; do
+			printf >&2 "\033[0;36m[%s] %s\033[0m\n" ${SRC_NAME##*/} "$line"
+		done
+	elif [ $# == 1 ]; then
+		# read string
+		printf >&2 '\033[0;36m[%s] %s\033[0m\n' ${SRC_NAME##*/} "$1"
+	else
+		# read format and args
+		printf >&2 "\033[0;36m$1\033[0m" ${@:2}
+	fi
+}
+
+function DEBUG_PRINT_VAR() {
+	[ $MUDPACK_DEBUG ] || return 1
+	local -n var=$1
+	if [[ ${#var[*]} > 1 ]]; then
+		for x in "${!var[@]}"; do DEBUG_PRINT "$1[${x@Q}]=${var[$x]@Q}"; done
+	else
+		DEBUG_PRINT "$1=${var@Q}"
+	fi
+
+}
+
+# Make sure only root can run our script
+((EUID == 0)) || die 'This script must be run with root privileges'
+
+function read_config() {
+	while IFS= read -r line || [ -n "$line" ]; do
+		config[${line%%=*}]="${line#*=}"
+		export MUDPACK_"${line%%=*}=${line#*=}"
+	done
+}
+
+# load config mudpack.conf
+declare -A config
+
+if [[ -f "${conf}" ]]; then
+	read_config <"${conf}"
+fi
+
+DEBUG_PRINT_VAR MUDPACK_CONF
+DEBUG_PRINT_VAR config
+
+# do brace and glob expansions
+machines=($(eval printf '%s\\n' "$MUDPACK_machines"))
+MUDPACK_machines="${machines[*]}"
+export MUDPACK_machines
+
+export MUDPACK_homedir=$(eval echo ~$MUDPACK_builduser)
+
+function list_commands_files() {
+	local d=$1
+	compgen -G "$d"'/mudpack-*' | while IFS= read -r cmd || [ -n "$cmd" ]; do
+		printf '%q\n' "${cmd##*/mudpack-}"
+	done
+}
+
+function list_commands() {
+	printf 'available commands:\n'
+	list_commands_files "${lib_dir}" | sort | column
+	printf '\navailable user commands:\n'
+	for d in ${MUDPACK_libdir}; do
+		list_commands_files "$d"
+	done | sort | column
+}
+
+function print_config() {
+	printf '\nconfiguration file is %s\n\n' $MUDPACK_CONF
+	printf 'current configuration are as follows:\n'
+	for x in "${!config[@]}"; do
+		printf '%s %s\n' "${x}" "${config[$x]}"
+	done | sort | column -t -l2 -o ' = '
+}
+
+if [[ -z $1 ]]; then
+	printf >&2 'usage: %s [command]\n\n' "$argv0"
+	list_commands >&2
+	exit 1
+fi
+
+case $1 in
+--version)
+	exit 0
+	;;
+--list-commands | --print-config)
+	f="${1//-/_}"
+	${f:2}
+	exit 0
+	;;
+esac
+shopt -s nullglob
+
+mypath="${lib_dir}:$PATH"
+for d in $MUDPACK_libdir; do
+	if [[ "$mypath" != "$d:"* ]]; then
+		mypath=$d:$mypath
+	fi
+done
+PATH=$mypath
+export "PATH=$mypath"
+
+[[ -d $MUDPACK_repodir ]] || die "repodir '$MUDPACK_repodir' does not exist"
+
+cmd=$1
+
+shopt -s extglob
+
+function parse_args() {
+	local _prop
+	while test $# != 0; do
+		case "$1" in
+		-+([a-z])=*)
+			_prop=${1:1}
+			export "ARG_${_prop%%=*}=${_prop#*=}"
+			;;
+		-+([a-z]))
+			export "ARG_${1:1}=true"
+			;;
+		--)
+			ARG_PASS="$*"
+			return 0
+			;;
+		*)
+			ARG_REST+=($1)
+			;;
+		esac
+		shift
+	done
+}
+
+parse_args "${@:2}"
+
+for a in ${!ARG_@}; do
+	printf '%s' ${a[@]}=${!a@K}
+done | DEBUG_PRINT
+
+mudpack-init
+
+if type -P "mudpack-$cmd" >/dev/null; then
+	DEBUG_PRINT "mudpack-$cmd ${ARG_REST[@]} $ARG_PASS"
+	exec "mudpack-$cmd" "${ARG_REST[@]}" "$ARG_PASS"
+else
+	printf >&2 '%s: %q is not an mudpack command\n' "$argv0" "$cmd"
+	exit 1
+fi
